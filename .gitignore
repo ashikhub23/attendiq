@@ -1,0 +1,22 @@
+# Secrets - never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Runtime data (local, regenerated)
+database/
+uploads/
+screenshots/
+generated_reports/
+logs/
+requirements.zip
+
+# Stale nested copy of the project
+hod_attendance_system/
+
+# Oracle VM deployment files (alternative path, not needed on Render)
+deploy/

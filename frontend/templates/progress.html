@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}Automation in progress — Attendance Console{% endblock %}
+{% block content %}
+
+<h1 class="font-display text-2xl sm:text-3xl font-bold mb-1 fade-up">Automation Console</h1>
+<p class="text-slate-500 dark:text-slate-400 mb-8 fade-up">Selenium is driving the portal on your behalf. Sit back — this usually takes under a minute.</p>
+
+<div class="grid lg:grid-cols-2 gap-6">
+  <!-- Left: Console -->
+  <div class="console rounded-2xl p-6 text-slate-200">
+    <div class="flex items-center gap-2 mb-4 text-xs text-slate-500">
+      <span class="w-3 h-3 rounded-full bg-red-500/70"></span>
+      <span class="w-3 h-3 rounded-full bg-amber-400/70"></span>
+      <span class="w-3 h-3 rounded-full bg-teal/70"></span>
+      <span class="ml-2">attendance-bot — live session #{{ session_id }}</span>
+    </div>
+    <div id="console-lines" class="space-y-2 text-sm"></div>
+
+    <div id="error-box" class="hidden mt-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30">
+      <p class="text-red-300 font-semibold" id="error-title">Automation failed</p>
+      <p class="text-red-300/80 text-xs mt-1" id="error-message"></p>
+      <button id="retry-btn" class="btn btn-danger-soft mt-3 !text-sm">
+        Retry Automation
+      </button>
+    </div>
+
+    <div id="success-box" class="hidden mt-6 p-5 rounded-xl bg-teal/10 border border-teal/30">
+      <p class="text-teal font-display font-bold text-lg">Attendance Completed Successfully</p>
+      <div class="grid grid-cols-2 gap-4 mt-3 text-sm">
+        <div>Present: <span id="present-count" class="font-bold text-teal"></span></div>
+        <div>Absent: <span id="absent-count" class="font-bold text-red-300"></span></div>
+      </div>
+      <a id="view-report-link" href="#" class="btn btn-primary mt-4 !text-sm">
+        View Report
+      </a>
+    </div>
+  </div>
+
+  <!-- Right: Live Screen + Progress -->
+  <div class="space-y-6">
+    <div class="glass glass-card p-4">
+      <div class="flex items-center gap-2 mb-3 text-xs text-slate-500">
+        <span class="w-2 h-2 rounded-full bg-teal animate-pulse"></span>
+        Live Browser View
+      </div>
+      <div id="screen-container" class="rounded-xl overflow-hidden bg-black/30 aspect-video flex items-center justify-center">
+        <p id="screen-placeholder" class="text-slate-500 text-sm">Waiting for browser...</p>
+        <img id="screen-img" src="/automation/stream/{{ session_id }}" class="w-full h-full object-contain hidden" alt="Live browser screen">
+      </div>
+    </div>
+
+    <div class="glass glass-card p-6 h-fit">
+      <h2 class="font-display font-semibold text-lg mb-4">Progress</h2>
+      <div class="progress-track mb-2">
+        <div id="progress-fill" class="progress-fill" style="width:0%"></div>
+      </div>
+      <p class="text-sm text-slate-500 dark:text-slate-400" id="progress-label">0% complete</p>
+      <p class="text-sm mt-4 font-medium" id="current-step">Queued...</p>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const sessionId = {{ session_id }};
+const consoleLines = document.getElementById('console-lines');
+const progressFill = document.getElementById('progress-fill');
+const progressLabel = document.getElementById('progress-label');
+const currentStep = document.getElementById('current-step');
+const errorBox = document.getElementById('error-box');
+const successBox = document.getElementById('success-box');
+const screenImg = document.getElementById('screen-img');
+const screenPlaceholder = document.getElementById('screen-placeholder');
+let renderedLogCount = 0;
+let finished = false;
+
+screenImg.onload = () => {
+  screenImg.classList.remove('hidden');
+  screenPlaceholder.classList.add('hidden');
+};
+screenImg.onerror = () => {
+  screenImg.classList.add('hidden');
+  screenPlaceholder.classList.remove('hidden');
+};
+
+function poll() {
+  if (finished) return;
+  fetch(`/automation/status/${sessionId}`)
+    .then(r => r.json())
+    .then(data => {
+      progressFill.style.width = data.progress_percent + '%';
+      progressLabel.textContent = data.progress_percent + '% complete';
+      currentStep.textContent = data.current_step || '...';
+
+      for (let i = renderedLogCount; i < data.logs.length; i++) {
+        const log = data.logs[i];
+        const dotClass = log.level === 'ERROR' ? 'error' : '';
+        const line = document.createElement('div');
+        line.className = 'console-line flex items-center gap-2';
+        line.innerHTML = `<span class="console-dot ${dotClass}"></span><span class="text-slate-500">${log.time}</span><span>${log.message}</span>`;
+        consoleLines.appendChild(line);
+      }
+      renderedLogCount = data.logs.length;
+
+      if (data.status === 'success') {
+        finished = true;
+        successBox.classList.remove('hidden');
+        document.getElementById('present-count').textContent = data.total_present;
+        document.getElementById('absent-count').textContent = data.total_absent;
+        document.getElementById('view-report-link').href = `/reports/${sessionId}/view`;
+      } else if (data.status === 'failed') {
+        finished = true;
+        errorBox.classList.remove('hidden');
+        document.getElementById('error-message').textContent = data.error_message || 'Unknown error.';
+      } else {
+        setTimeout(poll, 1500);
+      }
+    })
+    .catch(() => setTimeout(poll, 2500));
+}
+poll();
+
+document.getElementById('retry-btn').addEventListener('click', () => {
+  fetch(`/automation/retry/${sessionId}`, { method: 'POST' })
+    .then(r => r.json())
+    .then(data => {
+      if (data.session_id) window.location.href = `/automation/progress/${data.session_id}`;
+    });
+});
+</script>
+{% endblock %}

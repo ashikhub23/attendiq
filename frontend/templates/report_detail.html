@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Report #{{ session.id }} — AttendIQ{% endblock %}
+{% block content %}
+
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8 fade-up">
+  <div>
+    <a href="{{ url_for('reports.reports_list') }}" class="inline-flex items-center gap-1.5 text-sm text-slate-500 dark:text-slate-400 hover:text-accent transition mb-2">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+      Back to reports
+    </a>
+    <h1 class="font-display text-2xl sm:text-3xl font-bold">Attendance Report</h1>
+    <p class="text-slate-500 dark:text-slate-400 mt-1.5">
+      {{ session.department or "—" }} · Section {{ session.section or "—" }} · {{ session.subject or "—" }} · {{ session.date or "—" }}
+    </p>
+  </div>
+  <div class="flex flex-wrap gap-2">
+    <a href="{{ url_for('reports.download_report', session_id=session.id, fmt='pdf') }}" class="btn btn-primary !py-2.5">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 14l3 3m0 0l3-3m-3 3V9"/></svg>
+      PDF
+    </a>
+    <a href="{{ url_for('reports.download_report', session_id=session.id, fmt='excel') }}" class="btn btn-outline !py-2.5">Excel</a>
+    <a href="{{ url_for('reports.download_report', session_id=session.id, fmt='csv') }}" class="btn btn-outline !py-2.5">CSV</a>
+  </div>
+</div>
+
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8 stagger">
+  <div class="glass glass-card p-5">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-500 font-medium">Present</p>
+        <p class="text-3xl font-display font-bold mt-2 text-teal">{{ session.total_present }}</p>
+      </div>
+      <span class="kpi-icon kpi-icon-teal"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
+    </div>
+  </div>
+  <div class="glass glass-card p-5">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-500 font-medium">Absent</p>
+        <p class="text-3xl font-display font-bold mt-2 text-red-400">{{ session.total_absent }}</p>
+      </div>
+      <span class="kpi-icon kpi-icon-rose"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
+    </div>
+  </div>
+  <div class="glass glass-card p-5">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-500 font-medium">Duration</p>
+        <p class="text-3xl font-display font-bold mt-2">{{ session.duration_seconds }}s</p>
+      </div>
+      <span class="kpi-icon kpi-icon-slate"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></span>
+    </div>
+  </div>
+  <div class="glass glass-card p-5">
+    <div class="flex items-center justify-between">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-500 font-medium">Status</p>
+        <p class="mt-2"><span class="badge badge-success">{{ session.status }}</span></p>
+      </div>
+      <span class="kpi-icon kpi-icon-indigo"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg></span>
+    </div>
+  </div>
+</div>
+
+<div class="glass glass-card overflow-hidden fade-up">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Register Number</th>
+          <th>Name</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+        <tr>
+          <td class="font-mono">{{ r.register_number }}</td>
+          <td class="font-medium">{{ r.name or "—" }}</td>
+          <td><span class="badge badge-failed">{{ r.status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

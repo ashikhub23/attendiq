@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}AttendIQ{% endblock %}</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+<script>
+  tailwind.config = {
+    darkMode: 'class',
+    theme: {
+      extend: {
+        fontFamily: {
+          display: ['Sora', 'sans-serif'],
+          body: ['Inter', 'sans-serif'],
+          mono: ['JetBrains Mono', 'monospace'],
+        },
+        colors: {
+          ink: '#0B1120',
+          panel: '#111A2E',
+          accent: '#5B6CFF',
+          teal: '#17D3B6',
+        }
+      }
+    }
+  }
+</script>
+</head>
+<body class="font-body bg-slate-100 dark:bg-ink text-slate-800 dark:text-slate-100 transition-colors duration-300 min-h-screen flex flex-col">
+
+{% if current_user.is_authenticated %}
+{% set nav_items = [
+  ('dashboard.index', 'Dashboard', 'M3 12l9-9 9 9M5 10v10h5v-6h4v6h5V10'),
+  ('upload.upload_page', 'New Automation', 'M12 4v16m8-8H4'),
+  ('reports.reports_list', 'Reports', 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.6a2 2 0 011.6.8l4.6 6.4a2 2 0 01.4 1.2V15a2 2 0 01-2 2z'),
+] %}
+<header class="sticky top-0 z-40 backdrop-blur-xl bg-white/75 dark:bg-ink/70 border-b border-slate-200/70 dark:border-white/10">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-16">
+      <a href="{{ url_for('dashboard.index') }}" class="flex items-center gap-2.5 font-display font-bold text-lg">
+        <span class="logo-mark inline-block w-9 h-9 rounded-xl grid place-items-center">
+          <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        </span>
+        Attend<span class="gradient-text">IQ</span>
+      </a>
+
+      <nav class="hidden md:flex items-center gap-1">
+        {% for endpoint, label, icon in nav_items %}
+        <a href="{{ url_for(endpoint) }}"
+           class="flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition
+                  {{ 'text-accent bg-accent/10' if request.endpoint == endpoint else 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-900/5 dark:hover:bg-white/5' }}">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="{{ icon }}"/></svg>
+          {{ label }}
+        </a>
+        {% endfor %}
+      </nav>
+
+      <div class="flex items-center gap-3">
+        <span class="hidden lg:inline-flex items-center gap-1.5 text-xs font-medium text-teal">
+          <span class="w-1.5 h-1.5 rounded-full bg-teal animate-pulse"></span>
+          All systems operational
+        </span>
+        <button id="theme-toggle" title="Toggle theme"
+          class="w-9 h-9 rounded-full grid place-items-center border border-slate-300 dark:border-white/15 text-slate-500 dark:text-slate-400 hover:border-accent hover:text-accent transition">
+          <svg id="icon-sun" class="w-4 h-4 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.36 6.36l-.7-.7M6.34 6.34l-.7-.7m12.02 0l-.7.7M6.34 17.66l-.7.7M12 8a4 4 0 100 8 4 4 0 000-8z"/></svg>
+          <svg id="icon-moon" class="w-4 h-4 dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 1020.354 15.354z"/></svg>
+        </button>
+
+        <div class="hidden sm:flex items-center gap-3 pl-3 border-l border-slate-200 dark:border-white/10">
+          {% set user_name = current_user.full_name or current_user.username %}
+          {% set initials = user_name.split(' ')[0][0] + (user_name.split(' ')[1][0] if user_name.split(' ')|length > 1 else '') %}
+          <div class="avatar">{{ initials }}</div>
+          <div class="leading-tight hidden lg:block">
+            <p class="text-sm font-semibold">{{ user_name }}</p>
+            <p class="text-xs text-slate-400">Head of Department</p>
+          </div>
+        </div>
+        <a href="{{ url_for('auth.logout') }}" title="Sign out"
+          class="btn btn-ghost !px-2.5 !py-2 text-slate-500 dark:text-slate-400 hover:!text-red-500">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <nav class="md:hidden flex gap-1 pb-2 -mx-2 overflow-x-auto">
+      {% for endpoint, label, icon in nav_items %}
+      <a href="{{ url_for(endpoint) }}"
+         class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition
+                {{ 'text-accent bg-accent/10' if request.endpoint == endpoint else 'text-slate-500 dark:text-slate-400' }}">
+        {{ label }}
+      </a>
+      {% endfor %}
+    </nav>
+  </div>
+</header>
+{% endif %}
+
+<main class="flex-1 w-full {% block main_classes %}max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8{% endblock %}">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="mb-6 space-y-2 fade-up">
+      {% for category, message in messages %}
+        <div class="flex items-center gap-3 px-4 py-3 rounded-xl glass glass-card border-l-4
+          {{ 'border-red-500 text-red-600 dark:text-red-300' if category=='error' else 'border-teal text-teal-700 dark:text-teal' }}">
+          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            {% if category == 'error' %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            {% else %}
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            {% endif %}
+          </svg>
+          {{ message }}
+        </div>
+      {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</main>
+
+{% if current_user.is_authenticated %}
+<footer class="border-t border-slate-200/70 dark:border-white/10">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-400">
+    <div class="flex items-center gap-2">
+      <span class="logo-mark inline-block w-5 h-5 rounded-md grid place-items-center">
+        <svg class="w-3 h-3 text-white" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+      </span>
+      <span>AttendIQ — Attendance automation for M.A.M College of Engineering</span>
+    </div>
+    <p>© {{ current_year }} AttendIQ · Made for HODs</p>
+  </div>
+</footer>
+{% endif %}
+
+<script>
+  const root = document.documentElement;
+  const saved = localStorage.getItem('theme');
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    root.classList.add('dark');
+  }
+  document.getElementById('theme-toggle')?.addEventListener('click', () => {
+    root.classList.toggle('dark');
+    localStorage.setItem('theme', root.classList.contains('dark') ? 'dark' : 'light');
+  });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

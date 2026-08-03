@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% block title %}New Automation — AttendIQ{% endblock %}
+{% block content %}
+
+<div class="fade-up">
+  <h1 class="font-display text-2xl sm:text-3xl font-bold mb-1">New Automation</h1>
+  <p class="text-slate-500 dark:text-slate-400 mb-8">Upload the absentee list, confirm the list, then let the automation take over.</p>
+</div>
+
+<div class="grid lg:grid-cols-3 gap-6 items-start">
+
+  <!-- Left: Steps 1 & 2 -->
+  <div class="lg:col-span-2 space-y-6">
+    <!-- Step 1 -->
+    <div class="glass glass-card p-6 fade-up">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="w-7 h-7 rounded-full bg-accent text-white grid place-items-center text-sm font-bold">1</span>
+        <h2 class="font-display font-semibold text-lg">Upload attendance file</h2>
+      </div>
+
+      <div id="dropzone" class="dropzone p-10 text-center cursor-pointer">
+        <div class="w-14 h-14 mx-auto mb-4 rounded-2xl bg-accent/10 text-accent grid place-items-center floaty">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+        </div>
+        <p class="font-semibold">Drag &amp; drop your file here, or <span class="text-accent">click to browse</span></p>
+        <p class="text-sm text-slate-500 dark:text-slate-400 mt-1.5">PDF · Excel (.xlsx) · CSV · TXT — up to 25MB</p>
+        <input id="file-input" type="file" accept=".pdf,.xlsx,.xls,.csv,.txt" class="hidden">
+      </div>
+
+      <div class="flex items-center gap-3 my-5">
+        <div class="flex-1 h-px bg-slate-200 dark:bg-white/10"></div>
+        <span class="text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500 font-medium">or paste names below</span>
+        <div class="flex-1 h-px bg-slate-200 dark:bg-white/10"></div>
+      </div>
+
+      <textarea id="text-input" rows="5"
+        class="input font-mono text-sm resize-none"
+        placeholder="Paste or type student names here, one per line&#10;&#10;Mohamed Ajmal&#10;Arun Kumar&#10;Priya&#10;Rahul"></textarea>
+      <div class="flex items-center justify-between mt-3">
+        <button id="text-submit-btn" class="btn btn-outline text-sm">
+          Process Names
+        </button>
+        <div id="upload-status" class="text-sm hidden"></div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="preview-card" class="glass glass-card p-6 hidden fade-up">
+      <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center gap-3">
+          <span class="w-7 h-7 rounded-full bg-teal text-white grid place-items-center text-sm font-bold">2</span>
+          <h2 class="font-display font-semibold text-lg">Detected absentees</h2>
+        </div>
+        <span id="detected-count" class="badge badge-running"></span>
+      </div>
+      <p class="text-sm text-slate-500 dark:text-slate-400 mb-4">Review the list below. Remove any incorrect register number before starting automation.</p>
+      <div id="absentee-list" class="space-y-2 max-h-80 overflow-y-auto pr-1 font-mono text-sm"></div>
+      <div id="warnings" class="mt-3 text-xs text-amber-500"></div>
+    </div>
+  </div>
+
+  <!-- Step 3: Filters + Start -->
+  <div class="space-y-6">
+    <div class="glass glass-card p-6 fade-up" style="animation-delay:.06s">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="w-7 h-7 rounded-full bg-gradient-to-br from-accent to-teal text-white grid place-items-center text-sm font-bold">3</span>
+        <h2 class="font-display font-semibold text-lg">Attendance details</h2>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="label" for="f-department">Department</label>
+          <select id="f-department" class="select">
+            <option value="">Select department</option>
+            <option>AI &amp; DS</option>
+            <option>CSE</option>
+            <option>ECE</option>
+            <option>EEE</option>
+            <option>MECH</option>
+            <option>CIVIL</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="f-year">Year</label>
+          <select id="f-year" class="select">
+            <option value="">Select year</option>
+            <option value="I">I Year</option>
+            <option value="II">II Year</option>
+            <option value="III">III Year</option>
+            <option value="IV">IV Year</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="f-section">Section</label>
+          <select id="f-section" class="select">
+            <option value="">Select section</option>
+            <option>A</option>
+            <option>B</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="f-subject">Subject</label>
+          <select id="f-subject" class="select">
+            <option value="">Select subject</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="f-period">Period</label>
+          <select id="f-period" class="select">
+            <option value="">All periods (full day)</option>
+            <option value="period1">P1 · 09:00–09:45</option>
+            <option value="period2">P2 · 09:45–10:30</option>
+            <option value="period3">P3 · 10:45–11:30</option>
+            <option value="period4">P4 · 11:30–12:15</option>
+            <option value="period5">P5 · 13:15–14:00</option>
+            <option value="period6">P6 · 14:00–14:45</option>
+            <option value="period7">P7 · 15:00–15:45</option>
+            <option value="period8">P8 · 15:45–16:30</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="f-date">Date</label>
+          <input id="f-date" type="date" class="input">
+        </div>
+      </div>
+    </div>
+
+    <button id="start-btn" disabled
+      class="btn btn-primary w-full !py-4 !text-lg font-display font-bold fade-up" style="animation-delay:.1s">
+      Start Automation
+    </button>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const dropzone = document.getElementById('dropzone');
+const fileInput = document.getElementById('file-input');
+const uploadStatus = document.getElementById('upload-status');
+const previewCard = document.getElementById('preview-card');
+const absenteeList = document.getElementById('absentee-list');
+const detectedCount = document.getElementById('detected-count');
+const warningsEl = document.getElementById('warnings');
+const startBtn = document.getElementById('start-btn');
+const fDept = document.getElementById('f-department');
+const fYear = document.getElementById('f-year');
+const fSection = document.getElementById('f-section');
+const fSubject = document.getElementById('f-subject');
+
+function loadSubjects() {
+  fSubject.disabled = true;
+  fSubject.innerHTML = '<option value="">Loading subjects...</option>';
+  if (!fDept.value || !fYear.value || !fSection.value) {
+    fSubject.innerHTML = '<option value="">Select department, year & section first</option>';
+    return;
+  }
+  const params = new URLSearchParams({ department: fDept.value, year: fYear.value, section: fSection.value });
+  fetch(`/automation/subjects?${params}`)
+    .then(r => r.json())
+    .then(data => {
+      const list = data.subjects || [];
+      fSubject.innerHTML = '<option value="">Select subject</option>' +
+        list.map(s => `<option>${s}</option>`).join('') +
+        (list.length ? '' : '<option value="">No subjects for this class</option>');
+      fSubject.disabled = list.length === 0;
+    })
+    .catch(() => {
+      fSubject.innerHTML = '<option value="">Failed to load subjects</option>';
+      fSubject.disabled = false;
+    });
+}
+fDept.addEventListener('change', loadSubjects);
+fYear.addEventListener('change', loadSubjects);
+fSection.addEventListener('change', loadSubjects);
+
+let currentUploadId = null;
+let currentAbsentees = [];
+
+dropzone.addEventListener('click', () => fileInput.click());
+['dragover', 'dragenter'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.add('dragover'); })
+);
+['dragleave', 'drop'].forEach(evt =>
+  dropzone.addEventListener(evt, e => { e.preventDefault(); dropzone.classList.remove('dragover'); })
+);
+dropzone.addEventListener('drop', e => {
+  if (e.dataTransfer.files.length) handleUpload(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length) handleUpload(fileInput.files[0]);
+});
+
+const textInput = document.getElementById('text-input');
+const textSubmitBtn = document.getElementById('text-submit-btn');
+
+textSubmitBtn.addEventListener('click', () => {
+  const text = textInput.value.trim();
+  if (!text) return;
+  textSubmitBtn.disabled = true;
+  textSubmitBtn.textContent = 'Processing...';
+  uploadStatus.classList.remove('hidden');
+  uploadStatus.innerHTML = '<span class="pulse-soft text-accent">Processing names...</span>';
+
+  fetch("{{ url_for('upload.upload_text') }}", {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      textSubmitBtn.disabled = false;
+      textSubmitBtn.textContent = 'Process Names';
+      if (data.error) {
+        uploadStatus.innerHTML = `<span class="text-red-500">${data.error}</span>`;
+        return;
+      }
+      currentUploadId = data.upload_id;
+      currentAbsentees = data.absentees;
+      uploadStatus.innerHTML = `<span class="text-teal font-medium">✓ ${data.total_students_detected} absentee(s) detected</span>`;
+
+      warningsEl.innerHTML = (data.warnings || []).map(w => `⚠ ${w}`).join('<br>');
+
+      renderAbsentees();
+      previewCard.classList.remove('hidden');
+      startBtn.disabled = currentAbsentees.length === 0;
+    })
+    .catch(() => {
+      textSubmitBtn.disabled = false;
+      textSubmitBtn.textContent = 'Process Names';
+      uploadStatus.innerHTML = `<span class="text-red-500">Processing failed. Please try again.</span>`;
+    });
+});
+
+function handleUpload(file) {
+  uploadStatus.classList.remove('hidden');
+  uploadStatus.innerHTML = `<span class="pulse-soft text-accent">Uploading & extracting "${file.name}"...</span>`;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  fetch("{{ url_for('upload.upload_file') }}", { method: 'POST', body: formData })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        uploadStatus.innerHTML = `<span class="text-red-500">✕ ${data.error}</span>`;
+        return;
+      }
+      currentUploadId = data.upload_id;
+      currentAbsentees = data.absentees;
+      uploadStatus.innerHTML = `<span class="text-teal font-medium">✓ Extracted ${data.total_students_detected} absentee record(s)</span>`;
+
+      if (data.department) fDept.value = data.department;
+      if (data.section) fSection.value = data.section;
+      if (data.date) document.getElementById('f-date').value = data.date;
+      loadSubjects();
+
+      warningsEl.innerHTML = (data.warnings || []).map(w => `⚠ ${w}`).join('<br>');
+
+      renderAbsentees();
+      previewCard.classList.remove('hidden');
+      startBtn.disabled = currentAbsentees.length === 0;
+    })
+    .catch(() => {
+      uploadStatus.innerHTML = `<span class="text-red-500">✕ Upload failed. Please try again.</span>`;
+    });
+}
+
+function renderAbsentees() {
+  detectedCount.textContent = `${currentAbsentees.length} detected`;
+  absenteeList.innerHTML = currentAbsentees.map((a, i) => `
+    <div class="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-lg bg-white/60 dark:bg-white/5 border border-slate-200/60 dark:border-white/10">
+      <span class="truncate">${a.register_number || a.name || 'Unknown'}${a.register_number && a.name ? ' — ' + a.name : ''}</span>
+      <button data-idx="${i}" class="remove-btn shrink-0 text-xs font-sans font-semibold px-2.5 py-1 rounded-md bg-red-500/10 text-red-400 hover:bg-red-500/20 transition">Remove</button>
+    </div>
+  `).join('');
+
+  document.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx, 10);
+      currentAbsentees.splice(idx, 1);
+      renderAbsentees();
+      startBtn.disabled = currentAbsentees.length === 0;
+      persistEdits();
+    });
+  });
+}
+
+function persistEdits() {
+  if (!currentUploadId) return;
+  fetch(`/upload/${currentUploadId}/update`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ absentees: currentAbsentees }),
+  });
+}
+
+startBtn.addEventListener('click', () => {
+  if (!currentUploadId) return;
+  startBtn.disabled = true;
+  startBtn.textContent = 'Starting...';
+
+  const filters = {
+    department: fDept.value,
+    year: fYear.value,
+    section: fSection.value,
+    subject: fSubject.value,
+    period: document.getElementById('f-period').value,
+    date: document.getElementById('f-date').value,
+  };
+
+  fetch("{{ url_for('automation.start_automation') }}", {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ upload_id: currentUploadId, filters }),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        alert(data.error);
+        startBtn.disabled = false;
+        startBtn.textContent = 'Start Automation';
+        return;
+      }
+      window.location.href = `/automation/progress/${data.session_id}`;
+    });
+});
+</script>
+{% endblock %}

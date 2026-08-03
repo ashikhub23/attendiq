@@ -1,0 +1,15 @@
+# Keep secrets and junk out of the Docker build context
+.env
+venv/
+__pycache__/
+*.pyc
+uploads/
+screenshots/
+generated_reports/
+logs/
+database/
+requirements.zip
+hod_attendance_system/
+deploy/
+tests/
+.git/

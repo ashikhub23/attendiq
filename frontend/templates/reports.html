@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Reports — AttendIQ{% endblock %}
+{% block content %}
+
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 fade-up">
+  <div>
+    <h1 class="font-display text-2xl sm:text-3xl font-bold">Reports</h1>
+    <p class="text-slate-500 dark:text-slate-400 mt-1.5">Every attendance session, with downloadable PDF, Excel, and CSV exports.</p>
+  </div>
+  <a href="{{ url_for('upload.upload_page') }}" class="btn btn-primary">
+    <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+    New Automation
+  </a>
+</div>
+
+<div class="glass glass-card overflow-hidden fade-up">
+  <div class="table-wrap">
+    <table class="table">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Department</th>
+          <th>Section</th>
+          <th>Subject</th>
+          <th>Present</th>
+          <th>Absent</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr>
+          <td class="font-medium">{{ s.started_at.strftime('%d %b %Y') }}</td>
+          <td>{{ s.department or "—" }}</td>
+          <td>
+            <span class="px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-white/10 text-xs font-bold">{{ s.section or "—" }}</span>
+          </td>
+          <td>{{ s.subject or "—" }}</td>
+          <td class="text-teal font-semibold">{{ s.total_present }}</td>
+          <td class="text-red-400 font-semibold">{{ s.total_absent }}</td>
+          <td>
+            <span class="badge {{ 'badge-success' if s.status=='success' else 'badge-failed' if s.status=='failed' else 'badge-running' }}">
+              {{ s.status }}
+            </span>
+          </td>
+          <td class="text-right">
+            {% if s.status == 'success' %}
+            <a href="{{ url_for('reports.view_report', session_id=s.id) }}" class="btn btn-outline !px-3 !py-1.5 !text-xs">View</a>
+            {% else %}
+            <a href="{{ url_for('automation.progress_page', session_id=s.id) }}" class="btn btn-ghost !px-3 !py-1.5 !text-xs text-slate-400">Details</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="8" class="py-14 text-center text-slate-500 dark:text-slate-400">
+            <svg class="w-10 h-10 mx-auto mb-3 text-slate-400/60" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.6a2 2 0 011.6.8l4.6 6.4a2 2 0 01.4 1.2V15a2 2 0 01-2 2z"/></svg>
+            No sessions yet. Run an automation to see reports here.
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}

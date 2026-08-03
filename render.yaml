@@ -1,0 +1,28 @@
+# Render Blueprint — creates the web service from your GitHub repo.
+# Readme-style docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: attendiq
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /login
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: APP_ADMIN_USERNAME
+        value: admin
+      - key: APP_ADMIN_PASSWORD
+        sync: false          # set it in the Render dashboard after deploy
+      - key: PORTAL_URL
+        sync: false
+      - key: PORTAL_USERNAME
+        sync: false
+      - key: PORTAL_PASSWORD
+        sync: false
+      - key: PORTAL_SUPABASE_URL
+        sync: false
+      - key: PORTAL_SUPABASE_ANON_KEY
+        sync: false
+      - key: SELENIUM_HEADLESS
+        value: "true"
