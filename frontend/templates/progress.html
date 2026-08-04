@@ -45,7 +45,7 @@
       </div>
       <div id="screen-container" class="rounded-xl overflow-hidden bg-black/30 aspect-video flex items-center justify-center">
         <p id="screen-placeholder" class="text-slate-500 text-sm">Waiting for browser...</p>
-        <img id="screen-img" src="/automation/stream/{{ session_id }}" class="w-full h-full object-contain hidden" alt="Live browser screen">
+        <img id="screen-img" class="w-full h-full object-contain hidden" alt="Live browser screen">
       </div>
     </div>
 
@@ -85,6 +85,16 @@ screenImg.onerror = () => {
   screenPlaceholder.classList.remove('hidden');
 };
 
+let screenTimer = null;
+function refreshScreen() {
+  screenImg.src = `/automation/live/${sessionId}?t=${Date.now()}`;
+}
+function stopScreen() {
+  if (screenTimer) { clearInterval(screenTimer); screenTimer = null; }
+}
+refreshScreen();
+screenTimer = setInterval(refreshScreen, 1000);
+
 function poll() {
   if (finished) return;
   fetch(`/automation/status/${sessionId}`)
@@ -106,12 +116,14 @@ function poll() {
 
       if (data.status === 'success') {
         finished = true;
+        stopScreen();
         successBox.classList.remove('hidden');
         document.getElementById('present-count').textContent = data.total_present;
         document.getElementById('absent-count').textContent = data.total_absent;
         document.getElementById('view-report-link').href = `/reports/${sessionId}/view`;
       } else if (data.status === 'failed') {
         finished = true;
+        stopScreen();
         errorBox.classList.remove('hidden');
         document.getElementById('error-message').textContent = data.error_message || 'Unknown error.';
       } else {

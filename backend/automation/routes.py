@@ -214,6 +214,30 @@ def retry_automation(session_id):
     return jsonify({"session_id": new_session.id})
 
 
+@automation_bp.route("/automation/live/<int:session_id>")
+@login_required
+def live_frame(session_id):
+    """Serve the current live browser frame as a plain PNG (proxy-friendly).
+    The frontend polls this every ~1s with a cache-busting query param;
+    MJPEG streaming (multipart/x-mixed-replace) gets buffered by Render's
+    proxy, so we avoid it and serve static images instead."""
+    with current_app.app_context():
+        folder = current_app.config["SCREENSHOT_FOLDER"]
+    live_path = os.path.join(folder, f"live_{session_id}.png")
+    if not os.path.exists(live_path):
+        latest = _latest_screenshot(session_id)
+        if not latest:
+            return Response(status=204)
+        live_path = os.path.join(folder, latest)
+    try:
+        with open(live_path, "rb") as f:
+            data = f.read()
+    except Exception:
+        return Response(status=204)
+    return Response(data, mimetype="image/png",
+                    headers={"Cache-Control": "no-store"})
+
+
 @automation_bp.route("/automation/screenshot/<int:session_id>/<filename>")
 @login_required
 def serve_screenshot(session_id, filename):
