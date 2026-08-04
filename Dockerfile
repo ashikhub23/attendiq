@@ -4,10 +4,19 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Chromium + matching chromedriver for the Selenium portal automation
+# System deps: Chromium for Selenium, image libs for Pillow/PyMuPDF builds
 RUN apt-get update && apt-get install -y --no-install-recommends \
         chromium \
         chromium-driver \
+        build-essential \
+        libjpeg62-turbo-dev \
+        zlib1g-dev \
+        libfreetype6-dev \
+        liblcms2-dev \
+        libtiff-dev \
+        libwebp-dev \
+        libopenjp2-7-dev \
+        libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
