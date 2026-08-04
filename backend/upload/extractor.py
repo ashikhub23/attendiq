@@ -29,6 +29,16 @@ SECTION_LIKE_COLUMNS = {"section", "sec"}
 DATE_LIKE_COLUMNS = {"date", "attendance date"}
 
 
+def _clean_name(raw):
+    """Normalize a student name: strip leading list numbers ("1. Athithi" ->
+    "Athithi"), collapse internal whitespace, and trim stray punctuation."""
+    if raw is None:
+        return None
+    name = re.sub(r"^\d{1,3}\s*[.)\-]\s*", "", str(raw).strip())
+    name = re.sub(r"\s+", " ", name).strip().strip(".,;:-")
+    return name or None
+
+
 def _empty_result():
     return {
         "absentees": [],       # list of {"register_number": str, "name": str|None}
@@ -75,7 +85,7 @@ def _extract_from_dataframe(df: pd.DataFrame) -> dict:
             if regno in seen:
                 continue
             seen.add(regno)
-            name = str(row[name_col]).strip() if name_col is not None and pd.notna(row[name_col]) else None
+            name = _clean_name(row[name_col]) if name_col is not None and pd.notna(row[name_col]) else None
             result["absentees"].append({"register_number": regno, "name": name})
     else:
         # Fallback: scan every cell for register-number-shaped values.
@@ -92,7 +102,7 @@ def _extract_from_dataframe(df: pd.DataFrame) -> dict:
 
     if not result["absentees"] and name_col is not None:
         for _, row in df.iterrows():
-            raw_name = str(row[name_col]).strip() if pd.notna(row[name_col]) else ""
+            raw_name = _clean_name(row[name_col]) if pd.notna(row[name_col]) else None
             if raw_name and raw_name not in seen and len(raw_name) > 1:
                 seen.add(raw_name)
                 result["absentees"].append({"register_number": None, "name": raw_name})
@@ -132,7 +142,7 @@ def extract_from_text(text: str) -> dict:
             result["absentees"].append({"register_number": match.group(0), "name": None})
     if not result["absentees"]:
         for line in text.splitlines():
-            name = line.strip().strip(",").strip(";").strip("-")
+            name = _clean_name(line)
             if name and name not in seen and len(name) > 1:
                 seen.add(name)
                 result["absentees"].append({"register_number": None, "name": name})
@@ -169,7 +179,7 @@ def extract_from_pdf(filepath: str) -> dict:
                             match = re.search(REGISTER_NUMBER_REGEX, str(row[regno_idx]))
                             if match and match.group(0) not in seen:
                                 seen.add(match.group(0))
-                                name = row[name_idx] if name_idx is not None and name_idx < len(row) else None
+                                name = _clean_name(row[name_idx]) if name_idx is not None and name_idx < len(row) else None
                                 result["absentees"].append({"register_number": match.group(0), "name": name})
                     else:
                         for row in table:

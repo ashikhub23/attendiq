@@ -52,6 +52,7 @@ def _write_csv(path, session, rows):
                 session.date, session.department, session.section, session.subject
             ])
         writer.writerow([])
+        writer.writerow(["Total Students", session.total_present + session.total_absent])
         writer.writerow(["Present", session.total_present])
         writer.writerow(["Absent", session.total_absent])
         writer.writerow(["Automation Duration (sec)", session.duration_seconds])
@@ -84,12 +85,14 @@ def _write_excel(path, session, rows):
         ws.column_dimensions[col[0].column_letter].width = max(12, max_len + 2)
 
     summary_row = ws.max_row + 2
-    ws.cell(row=summary_row, column=1, value="Present").font = Font(bold=True)
-    ws.cell(row=summary_row, column=2, value=session.total_present)
-    ws.cell(row=summary_row + 1, column=1, value="Absent").font = Font(bold=True)
-    ws.cell(row=summary_row + 1, column=2, value=session.total_absent)
-    ws.cell(row=summary_row + 2, column=1, value="Automation Status").font = Font(bold=True)
-    ws.cell(row=summary_row + 2, column=2, value=session.status)
+    ws.cell(row=summary_row, column=1, value="Total Students").font = Font(bold=True)
+    ws.cell(row=summary_row, column=2, value=session.total_present + session.total_absent)
+    ws.cell(row=summary_row + 1, column=1, value="Present").font = Font(bold=True)
+    ws.cell(row=summary_row + 1, column=2, value=session.total_present)
+    ws.cell(row=summary_row + 2, column=1, value="Absent").font = Font(bold=True)
+    ws.cell(row=summary_row + 2, column=2, value=session.total_absent)
+    ws.cell(row=summary_row + 3, column=1, value="Automation Status").font = Font(bold=True)
+    ws.cell(row=summary_row + 3, column=2, value=session.status)
 
     wb.save(path)
 
@@ -137,6 +140,7 @@ def _write_pdf(path, session, rows, logo_path=None):
     elements.append(Spacer(1, 16))
 
     summary_data = [
+        ["Total Students", str(session.total_present + session.total_absent)],
         ["Present", str(session.total_present)],
         ["Absent", str(session.total_absent)],
         ["Automation Duration", f"{session.duration_seconds} sec"],

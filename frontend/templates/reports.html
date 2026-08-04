@@ -24,6 +24,7 @@
           <th>Subject</th>
           <th>Present</th>
           <th>Absent</th>
+          <th>Total</th>
           <th>Status</th>
           <th></th>
         </tr>
@@ -39,6 +40,7 @@
           <td>{{ s.subject or "—" }}</td>
           <td class="text-teal font-semibold">{{ s.total_present }}</td>
           <td class="text-red-400 font-semibold">{{ s.total_absent }}</td>
+          <td class="font-semibold">{{ s.total_present + s.total_absent }}</td>
           <td>
             <span class="badge {{ 'badge-success' if s.status=='success' else 'badge-failed' if s.status=='failed' else 'badge-running' }}">
               {{ s.status }}

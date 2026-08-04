@@ -19,8 +19,10 @@ import re
 import threading
 import time
 import traceback
+import urllib.parse
 from datetime import datetime
 
+import requests
 from flask import current_app
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -64,9 +66,10 @@ class AttendanceAutomationBot:
         self.session_id = session_id
         self.absentee_reg_nos = {a["register_number"] for a in absentees if a.get("register_number")}
         self.absentee_names = {
-            re.sub(r"\s+", " ", a["name"]).strip().lower()
+            self._normalize_name(a["name"])
             for a in absentees if a.get("name")
         }
+        self.absentee_names.discard("")
         self.filters = filters
         self.headless = headless
         self.driver = None
@@ -428,8 +431,11 @@ class AttendanceAutomationBot:
         self._update("mark_absent", "Loading Student Table", 55)
         self._log("Waiting for student table to load...")
         try:
+            # Wait for REAL student rows (the portal renders a loading row in
+            # #attBody that has no .roll cell - matching that would make us
+            # start marking before the table is ready).
             WebDriverWait(self.driver, EXPLICIT_WAIT_SECONDS).until(
-                lambda d: len(d.find_elements(By.CSS_SELECTOR, "#attBody tr")) > 0
+                lambda d: len(d.find_elements(By.CSS_SELECTOR, "#attBody tr td .roll")) > 0
             )
         except TimeoutException:
             raise AutomationError("Student Not Found - attendance table did not load.")
@@ -511,6 +517,18 @@ class AttendanceAutomationBot:
         self._screenshot("marking_complete")
         return present_count, absent_count
 
+    @staticmethod
+    def _normalize_name(raw):
+        """Normalize a name for lenient matching: lowercase, strip leading list
+        numbers ("1. Athithi" -> "athithi"), dots to spaces ("nandhini.b" ->
+        "nandhini b"), and collapse whitespace."""
+        if not raw:
+            return ""
+        n = re.sub(r"^\d{1,3}\s*[.)\-]\s*", "", str(raw).strip().lower())
+        n = n.replace(".", " ")
+        n = re.sub(r"\s+", " ", n).strip()
+        return n
+
     def _row_info(self, row):
         """Return (regno, name, matched_key) for a table row, or (None, None, None).
 
@@ -525,7 +543,7 @@ class AttendanceAutomationBot:
             name_text = row.find_element(By.CSS_SELECTOR, "td .sname").text.strip()
         except NoSuchElementException:
             return None, None, None
-        name_lower = re.sub(r"\s+", " ", name_text).strip().lower()
+        name_lower = self._normalize_name(name_text)
 
         if regno_text and regno_text in self.absentee_reg_nos:
             return regno_text, name_text, regno_text
@@ -562,20 +580,139 @@ class AttendanceAutomationBot:
             btn = self._find("save_attendance_button")
             self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
             time.sleep(0.5)
-            self._log("Clicking Save Attendance...")
-            self.driver.execute_script("arguments[0].click();", btn)
         except NoSuchElementException:
             raise AutomationError("Attendance Save Failed - save button not found.")
 
-        self._log("Waiting for confirmation...")
-        try:
-            WebDriverWait(self.driver, 5).until(EC.alert_is_present())
-            alert_text = self.driver.switch_to.alert.text
-            self._log(f"Confirmation received: {alert_text}")
-            self.driver.switch_to.alert.accept()
-        except TimeoutException:
-            self._log("No alert detected (headless mode). Proceeding...")
+        meta = {
+            "department": self.filters.get("department") or "",
+            "year": self.filters.get("year") or "",
+            "section": self.filters.get("section") or "",
+            "subject": self.filters.get("subject") or "",
+            "date": self.filters.get("date") or "",
+        }
+        supabase = self._portal_headers()
+
+        verified = False
+        for attempt in range(1, 4):
+            self._log(f"Clicking Save Attendance (attempt {attempt}/3)...")
+            try:
+                self.driver.execute_script("arguments[0].click();", btn)
+            except WebDriverException as e:
+                raise AutomationError(f"Attendance Save Failed - could not click save: {str(e)[:200]}")
+
+            # Accept the JS confirm() (shown when some students have no period
+            # marked as present).
+            try:
+                WebDriverWait(self.driver, 5).until(EC.alert_is_present())
+                alert_text = self.driver.switch_to.alert.text
+                self._log(f"Confirmation received: {alert_text}")
+                self.driver.switch_to.alert.accept()
+            except TimeoutException:
+                self._log("No alert detected; waiting for save to complete...")
+
+            if supabase is not None:
+                # Authoritative check: the record must actually exist in the
+                # portal's Supabase backend (the portal saves asynchronously,
+                # so the browser must stay alive until it lands).
+                deadline = time.time() + 25
+                while time.time() < deadline:
+                    record, entries = self._fetch_portal_record(supabase, meta)
+                    if record:
+                        verified = True
+                        self._log(
+                            f"Save verified in portal: record {record.get('id')} "
+                            f"with {len(entries)} entries."
+                        )
+                        break
+                    time.sleep(3)
+            else:
+                # No portal API configured - fall back to the portal's own UI
+                # signals (saved banner / success toast).
+                try:
+                    WebDriverWait(self.driver, 15).until(
+                        lambda d: "saved" in d.find_element(By.ID, "savedBanner")
+                                            .get_attribute("innerHTML").lower()
+                        or "attendance saved" in d.find_element(By.ID, "toastStack")
+                                            .get_attribute("innerHTML").lower()
+                    )
+                    verified = True
+                    self._log("Save confirmed by the portal UI.")
+                except (TimeoutException, NoSuchElementException):
+                    self._log(f"Portal did not confirm the save (attempt {attempt}/3).")
+
+            if verified:
+                break
+            if attempt < 3:
+                self._log("Save not confirmed; retrying...")
+
+        if not verified:
+            raise AutomationError(
+                "Attendance Save Failed - the portal did not save the record. "
+                "Please retry from the progress page."
+            )
 
         self._update("verify", "Verification Completed", 100)
-        self._log("Attendance saved successfully.")
+        self._log("Attendance saved and verified successfully.")
+
+    def _portal_headers(self):
+        """Return (supabase_url, anon_key, access_token) for the portal's
+        Supabase backend, or None when not configured. The HOD login is reused
+        to get an authenticated token so RLS policies allow reads."""
+        with self.app.app_context():
+            url = current_app.config.get("PORTAL_SUPABASE_URL", "")
+            anon = current_app.config.get("PORTAL_SUPABASE_ANON_KEY", "")
+            p_user = current_app.config.get("PORTAL_USERNAME", "")
+            p_pass = current_app.config.get("PORTAL_PASSWORD", "")
+        if not (url and anon and p_user and p_pass):
+            return None
+        try:
+            resp = requests.post(
+                f"{url}/auth/v1/token?grant_type=password",
+                json={"email": p_user, "password": p_pass},
+                headers={"apikey": anon, "Content-Type": "application/json"},
+                timeout=20,
+            )
+            token = resp.json().get("access_token")
+            if not token:
+                self._log("Portal API login failed for save verification.", level="WARN")
+                return None
+            return (url, anon, token)
+        except Exception as e:
+            self._log(
+                f"Could not create portal API session for verification: {str(e)[:150]}",
+                level="WARN",
+            )
+            return None
+
+    def _fetch_portal_record(self, supabase, meta):
+        """Fetch the attendance_records row + entries for the given class/date."""
+        url, anon, token = supabase
+        headers = {"apikey": anon, "Authorization": f"Bearer {token}"}
+        query = "&".join(
+            f"{k}=eq.{urllib.parse.quote(str(v))}" for k, v in meta.items() if v
+        )
+        try:
+            resp = requests.get(
+                f"{url}/rest/v1/attendance_records?{query}", headers=headers, timeout=20
+            )
+            data = resp.json()
+        except Exception:
+            return None, []
+        if not isinstance(data, list) or not data:
+            return None, []
+        record = data[0]
+        record_id = record.get("id")
+        entries = []
+        if record_id:
+            try:
+                resp2 = requests.get(
+                    f"{url}/rest/v1/attendance_entries?record_id=eq.{record_id}",
+                    headers=headers,
+                    timeout=20,
+                )
+                raw = resp2.json()
+                entries = raw if isinstance(raw, list) else []
+            except Exception:
+                entries = []
+        return record, entries
         self._screenshot("saved")
