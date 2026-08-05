@@ -1,6 +1,6 @@
 import json
 import os
-from flask import Blueprint, render_template, send_file, current_app, abort
+from flask import Blueprint, render_template, send_file, current_app, abort, request
 from flask_login import login_required, current_user
 
 from backend.extensions import db
@@ -25,11 +25,31 @@ def _build_student_rows(session):
 @reports_bp.route("/reports")
 @login_required
 def reports_list():
-    sessions = (AutomationSession.query
-                .filter_by(user_id=current_user.id)
-                .order_by(AutomationSession.started_at.desc())
-                .all())
-    return render_template("reports.html", sessions=sessions)
+    query = AutomationSession.query.filter_by(user_id=current_user.id)
+
+    date_filter = request.args.get("date", "").strip()
+    department_filter = request.args.get("department", "").strip()
+    if date_filter:
+        query = query.filter(AutomationSession.date == date_filter)
+    if department_filter:
+        query = query.filter(AutomationSession.department == department_filter)
+
+    sessions = query.order_by(AutomationSession.started_at.desc()).all()
+
+    departments = [d[0] for d in
+                   db.session.query(AutomationSession.department)
+                   .filter_by(user_id=current_user.id)
+                   .filter(AutomationSession.department.isnot(None))
+                   .filter(AutomationSession.department != "")
+                   .distinct().order_by(AutomationSession.department).all()]
+
+    return render_template(
+        "reports.html",
+        sessions=sessions,
+        departments=departments,
+        date_filter=date_filter,
+        department_filter=department_filter,
+    )
 
 
 @reports_bp.route("/reports/<int:session_id>/view")
