@@ -12,6 +12,8 @@ def _resolve_database_uri() -> str:
             relative_path = configured_uri[len("sqlite:///"):]
             if relative_path and not os.path.isabs(relative_path):
                 return f"sqlite:///{os.path.abspath(os.path.join(BASE_DIR, relative_path))}"
+        if configured_uri.startswith("postgres://"):
+            configured_uri = "postgresql://" + configured_uri[len("postgres://"):]
         return configured_uri
 
     return f"sqlite:///{os.path.join(BASE_DIR, 'database', 'attendance.db')}"
