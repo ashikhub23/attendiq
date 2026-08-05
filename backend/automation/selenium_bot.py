@@ -255,6 +255,7 @@ class AttendanceAutomationBot:
             self._log("No local ChromeDriver found; downloading via webdriver-manager...")
             service = Service(ChromeDriverManager().install())
 
+        options.page_load_strategy = "eager"
         self.driver = webdriver.Chrome(service=service, options=options)
         self.driver.implicitly_wait(3)
         self._log("Browser ready.")
@@ -329,7 +330,7 @@ class AttendanceAutomationBot:
                 "Check PORTAL_USERNAME / PORTAL_PASSWORD in your .env file."
             )
 
-        time.sleep(1)
+        time.sleep(0.5)
         self._log(f"Post-login page: {self.driver.current_url.split('/')[-1]}")
         self._log("Login successful.")
         self._screenshot("login_success")
@@ -383,7 +384,7 @@ class AttendanceAutomationBot:
                         f"Available options: {options}"
                     )
             # Dept/Year/Section changes trigger an async subject reload.
-            time.sleep(0.5)
+            time.sleep(0.2)
 
         # Subject options load from the API only after dept/year/section set.
         self._log("  Waiting for subject list to load...")
@@ -423,7 +424,7 @@ class AttendanceAutomationBot:
                 self._log("  date: input field not found (skipped)")
 
         # Give the student table a moment to load after filters applied.
-        time.sleep(2)
+        time.sleep(1)
         self._log("All filters applied.")
         self._screenshot("filters_applied")
 
@@ -477,7 +478,7 @@ class AttendanceAutomationBot:
             self._log("Clicking 'Mark All Present'...")
             mark_all = self._find("mark_all_present_button")
             self.driver.execute_script("arguments[0].click();", mark_all)
-            time.sleep(1)
+            time.sleep(0.4)
 
             # The table re-renders after the bulk action, so re-read the rows.
             fresh_rows = self.driver.find_elements(By.CSS_SELECTOR, "#attBody tr")
@@ -488,10 +489,14 @@ class AttendanceAutomationBot:
                     continue
                 if matched:
                     # Uncheck every period for this student => fully absent.
-                    checkboxes = row.find_elements(By.CSS_SELECTOR, "input.period-cb")
-                    for cb in checkboxes:
-                        if cb.is_selected():
-                            self.driver.execute_script("arguments[0].click();", cb)
+                    # One JS call per row (not per checkbox) to cut round-trips.
+                    self.driver.execute_script(
+                        "var boxes = arguments[0].querySelectorAll('input.period-cb');"
+                        "for (var i = 0; i < boxes.length; i++) {"
+                        "  if (boxes[i].checked) boxes[i].click();"
+                        "}",
+                        row,
+                    )
                     absent_count += 1
                     self._log(f"  ABSENT  #{absent_count}  {regno_text or name_text} - {name_text}")
                     if absent_count % 3 == 0:
@@ -579,7 +584,7 @@ class AttendanceAutomationBot:
         try:
             btn = self._find("save_attendance_button")
             self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-            time.sleep(0.5)
+            time.sleep(0.2)
         except NoSuchElementException:
             raise AutomationError("Attendance Save Failed - save button not found.")
 
@@ -624,7 +629,7 @@ class AttendanceAutomationBot:
                             f"with {len(entries)} entries."
                         )
                         break
-                    time.sleep(3)
+                    time.sleep(1.5)
             else:
                 # No portal API configured - fall back to the portal's own UI
                 # signals (saved banner / success toast).
