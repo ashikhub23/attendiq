@@ -60,6 +60,48 @@ class AutomationError(Exception):
     """Raised for any recoverable automation failure; message is user-facing."""
 
 
+# One JS pass over the whole table: unchecks every period checkbox for each
+# absentee, then returns {marked, matched:[...keys...]}.  Turns N per-student
+# Selenium round-trips into a single execute_script call.
+_UNCHECK_ABSENTEES_JS = """
+function normName(s) {
+  if (!s) return '';
+  return s.trim().toLowerCase()
+    .replace(/^\\d{1,3}\\s*[.)\\-]\\s*/, '')
+    .replace(/\\./g, ' ')
+    .replace(/\\s+/g, ' ').trim();
+}
+var absentees = arguments[0];
+var rows = document.querySelectorAll('#attBody tr');
+var marked = 0;
+var matchedKeys = [];
+for (var i = 0; i < rows.length; i++) {
+  var row = rows[i];
+  var rollEl = row.querySelector('td .roll');
+  if (!rollEl) continue;
+  var regno = rollEl.textContent.trim();
+  var nameEl = row.querySelector('td .sname');
+  var name = nameEl ? normName(nameEl.textContent) : '';
+  var hit = null;
+  for (var j = 0; j < absentees.length; j++) {
+    var key = absentees[j];
+    if (regno === key) { hit = key; break; }
+    if (name === key) { hit = key; break; }
+    if (name.indexOf(key) === 0) { hit = key; break; }
+  }
+  if (hit) {
+    var boxes = row.querySelectorAll('input.period-cb');
+    for (var k = 0; k < boxes.length; k++) {
+      if (boxes[k].checked) boxes[k].click();
+    }
+    marked++;
+    if (matchedKeys.indexOf(hit) === -1) matchedKeys.push(hit);
+  }
+}
+return { marked: marked, matched: matchedKeys };
+"""
+
+
 class AttendanceAutomationBot:
     def __init__(self, app, session_id, absentees, filters, headless=True):
         self.app = app
@@ -330,7 +372,7 @@ class AttendanceAutomationBot:
                 "Check PORTAL_USERNAME / PORTAL_PASSWORD in your .env file."
             )
 
-        time.sleep(0.5)
+        time.sleep(0.3)
         self._log(f"Post-login page: {self.driver.current_url.split('/')[-1]}")
         self._log("Login successful.")
         self._screenshot("login_success")
@@ -384,7 +426,7 @@ class AttendanceAutomationBot:
                         f"Available options: {options}"
                     )
             # Dept/Year/Section changes trigger an async subject reload.
-            time.sleep(0.2)
+            time.sleep(0.1)
 
         # Subject options load from the API only after dept/year/section set.
         self._log("  Waiting for subject list to load...")
@@ -424,7 +466,7 @@ class AttendanceAutomationBot:
                 self._log("  date: input field not found (skipped)")
 
         # Give the student table a moment to load after filters applied.
-        time.sleep(1)
+        time.sleep(0.5)
         self._log("All filters applied.")
         self._screenshot("filters_applied")
 
@@ -478,30 +520,15 @@ class AttendanceAutomationBot:
             self._log("Clicking 'Mark All Present'...")
             mark_all = self._find("mark_all_present_button")
             self.driver.execute_script("arguments[0].click();", mark_all)
-            time.sleep(0.4)
+            time.sleep(0.3)
 
-            # The table re-renders after the bulk action, so re-read the rows.
-            fresh_rows = self.driver.find_elements(By.CSS_SELECTOR, "#attBody tr")
-
-            for row in fresh_rows:
-                regno_text, name_text, matched = self._row_info(row)
-                if regno_text is None:
-                    continue
-                if matched:
-                    # Uncheck every period for this student => fully absent.
-                    # One JS call per row (not per checkbox) to cut round-trips.
-                    self.driver.execute_script(
-                        "var boxes = arguments[0].querySelectorAll('input.period-cb');"
-                        "for (var i = 0; i < boxes.length; i++) {"
-                        "  if (boxes[i].checked) boxes[i].click();"
-                        "}",
-                        row,
-                    )
-                    absent_count += 1
-                    self._log(f"  ABSENT  #{absent_count}  {regno_text or name_text} - {name_text}")
-                    if absent_count % 3 == 0:
-                        self._screenshot(f"marking_absent_{absent_count}")
-                    not_found.discard(matched)
+            # Build the absentee key list (register numbers + normalized names).
+            absent_keys = sorted(self.absentee_reg_nos) + sorted(self.absentee_names)
+            result = self.driver.execute_script(_UNCHECK_ABSENTEES_JS, absent_keys)
+            absent_count = result.get("marked", 0)
+            for key in result.get("matched", []):
+                not_found.discard(key)
+            self._log(f"  ABSENT marked: {absent_count}")
 
         present_count = len(roster) - absent_count
         self._log(f"Scanned {len(roster)} unique students.")
@@ -619,7 +646,7 @@ class AttendanceAutomationBot:
                 # Authoritative check: the record must actually exist in the
                 # portal's Supabase backend (the portal saves asynchronously,
                 # so the browser must stay alive until it lands).
-                deadline = time.time() + 25
+                deadline = time.time() + 15
                 while time.time() < deadline:
                     record, entries = self._fetch_portal_record(supabase, meta)
                     if record:
@@ -629,7 +656,7 @@ class AttendanceAutomationBot:
                             f"with {len(entries)} entries."
                         )
                         break
-                    time.sleep(1.5)
+                    time.sleep(1.0)
             else:
                 # No portal API configured - fall back to the portal's own UI
                 # signals (saved banner / success toast).

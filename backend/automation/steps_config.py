@@ -67,7 +67,7 @@ SELECTORS = {
 }
 
 # How long (seconds) Selenium waits for each dynamic element before giving up.
-EXPLICIT_WAIT_SECONDS = 10
+EXPLICIT_WAIT_SECONDS = 8
 
 # The new portal uses a "Mark All Present" button. Students are present by
 # default once that is clicked, so we only UNCHECK absentees. Keeping this
