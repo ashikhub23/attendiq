@@ -16,7 +16,7 @@ import csv
 import io
 import pandas as pd
 import pdfplumber
-import fitz  # PyMuPDF
+import pymupdf  # PyMuPDF (replaces deprecated fitz alias)
 
 REGISTER_NUMBER_REGEX = r"\b\d{10,15}\b"
 NAME_LIKE_COLUMNS = {"name", "student name", "studentname", "student_name"}
@@ -200,7 +200,7 @@ def extract_from_pdf(filepath: str) -> dict:
     # Attempt 2: PyMuPDF fallback if nothing found (e.g. scanned/odd PDFs)
     if not result["absentees"]:
         try:
-            doc = fitz.open(filepath)
+            doc = pymupdf.open(filepath)
             for page in doc:
                 text = page.get_text()
                 for match in re.finditer(REGISTER_NUMBER_REGEX, text):
