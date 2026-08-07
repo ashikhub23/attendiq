@@ -7,6 +7,7 @@ from flask_login import LoginManager
 from backend.config import Config
 from backend.extensions import db, login_manager
 from backend.models import User
+from backend.utils.timeutils import IST_OFFSET, utc_to_ist, now_ist
 
 
 def create_app():
@@ -17,11 +18,15 @@ def create_app():
     )
     app.config.from_object(Config)
 
+    @app.template_filter("ist")
+    def ist_filter(dt):
+        return utc_to_ist(dt)
+
     @app.context_processor
     def inject_globals():
         return {
-            "current_year": datetime.utcnow().year,
-            "current_date": datetime.utcnow().strftime("%Y-%m-%d"),
+            "current_year": now_ist().year,
+            "current_date": now_ist().strftime("%Y-%m-%d"),
         }
 
     os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)

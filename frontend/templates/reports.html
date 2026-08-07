@@ -64,7 +64,7 @@
       <tbody>
         {% for s in sessions %}
         <tr>
-          <td class="font-medium">{{ s.started_at.strftime('%d %b %Y') }}</td>
+          <td class="font-medium">{{ (s.started_at|ist).strftime('%d %b %Y') }}</td>
           <td>{{ s.department or "—" }}</td>
           <td>
             <span class="px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-white/10 text-xs font-bold">{{ s.section or "—" }}</span>

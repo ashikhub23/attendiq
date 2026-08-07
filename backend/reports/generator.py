@@ -8,9 +8,15 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import cm
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Table,
+    TableStyle,
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+from backend.utils.timeutils import now_ist
 
 
 def _rows_for_report(absentee_list, all_present_or_absent):
@@ -118,7 +124,7 @@ def _write_pdf(path, session, rows, logo_path=None):
         f"Date: {session.date or '-'}", styles["Normal"]
     ))
     elements.append(Paragraph(
-        f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", styles["Normal"]
+        f"Generated: {now_ist().strftime('%Y-%m-%d %H:%M IST')}", styles["Normal"]
     ))
     elements.append(Spacer(1, 12))
 

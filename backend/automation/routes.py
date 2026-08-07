@@ -17,6 +17,7 @@ from flask_login import login_required, current_user
 
 from backend.extensions import db
 from backend.models import UploadedFile, AutomationSession, AutomationLog
+from backend.utils.timeutils import utc_to_ist
 from backend.automation.selenium_bot import AttendanceAutomationBot
 
 automation_bp = Blueprint("automation", __name__, template_folder="../../frontend/templates")
@@ -167,7 +168,7 @@ def automation_status(session_id):
         "duration_seconds": session.duration_seconds,
         "screenshot": f"/automation/screenshot/{session_id}/{screenshot}" if screenshot else None,
         "logs": [
-            {"time": log.timestamp.strftime("%H:%M:%S"), "level": log.level, "message": log.message}
+            {"time": utc_to_ist(log.timestamp).strftime("%H:%M:%S"), "level": log.level, "message": log.message}
             for log in logs
         ],
     })

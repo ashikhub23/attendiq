@@ -42,10 +42,10 @@
   <div class="glass glass-card p-6 md:col-span-2 fade-up">
     <div class="flex items-center justify-between mb-1">
       <p class="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400 font-medium">Last Automation</p>
-      <span class="badge badge-neutral">{{ 'just now' if last_automation and last_automation.strftime('%Y-%m-%d') == current_date else 'archive' }}</span>
+      <span class="badge badge-neutral">{{ 'just now' if last_automation and (last_automation|ist).strftime('%Y-%m-%d') == current_date else 'archive' }}</span>
     </div>
     <p class="font-mono text-lg mt-2">
-      {{ last_automation.strftime('%d %b %Y, %H:%M UTC') if last_automation else "No automations run yet" }}
+      {{ (last_automation|ist).strftime('%d %b %Y, %H:%M IST') if last_automation else "No automations run yet" }}
     </p>
     <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">
       {% if last_automation %}Head to Reports to export or review the latest run.{% else %}Run your first automation to get started.{% endif %}
@@ -86,7 +86,7 @@
             </span>
             <div class="min-w-0">
               <p class="font-medium truncate">{{ s.department or "—" }} · {{ s.subject or "—" }}</p>
-              <p class="text-xs text-slate-500 dark:text-slate-400">{{ s.started_at.strftime('%d %b, %H:%M') }} · {{ (s.period or 'Full day') | replace('period', 'P') }}</p>
+              <p class="text-xs text-slate-500 dark:text-slate-400">{{ (s.started_at|ist).strftime('%d %b, %H:%M') }} · {{ (s.period or 'Full day') | replace('period', 'P') }}</p>
             </div>
           </div>
           <span class="badge {{ 'badge-success' if s.status=='success' else 'badge-failed' if s.status=='failed' else 'badge-running' }}">
@@ -110,7 +110,7 @@
       {% for log in recent_logs %}
         <div class="flex items-center gap-2 py-1.5 rounded-md hover:bg-white/40 dark:hover:bg-white/5 px-2 -mx-2">
           <span class="console-dot {{ 'error' if log.level=='ERROR' else '' }}"></span>
-          <span class="text-slate-400 shrink-0">{{ log.timestamp.strftime('%H:%M:%S') }}</span>
+          <span class="text-slate-400 shrink-0">{{ (log.timestamp|ist).strftime('%H:%M:%S') }}</span>
           <span class="truncate">{{ log.message }}</span>
         </div>
       {% endfor %}
