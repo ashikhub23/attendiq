@@ -74,9 +74,9 @@
           {% set user_name = current_user.full_name or current_user.username %}
           {% set initials = user_name.split(' ')[0][0] + (user_name.split(' ')[1][0] if user_name.split(' ')|length > 1 else '') %}
           <div class="avatar">{{ initials }}</div>
-          <div class="leading-tight hidden lg:block">
+          <div class="leading-tight">
             <p class="text-sm font-semibold">{{ user_name }}</p>
-            <p class="text-xs text-slate-400">Head of Department</p>
+            <p class="text-xs text-slate-400 hidden lg:block">Head of Department</p>
           </div>
         </div>
         <a href="{{ url_for('auth.logout') }}" title="Sign out"
