@@ -16,6 +16,8 @@ contains the workflow logic and should not normally need edits.
 import glob
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 import traceback
@@ -290,22 +292,119 @@ class AttendanceAutomationBot:
         options.add_argument("--window-size=1920,1080")
 
         self._log("Launching Chrome browser...")
-        try:
-            service = Service(self._find_local_chromedriver())
-            self._log(f"Using local ChromeDriver: {service.path}")
-        except ChromeDriverNotFoundError:
-            self._log("No local ChromeDriver found; downloading via webdriver-manager...")
-            service = Service(ChromeDriverManager().install())
+        chrome_major = self._installed_chrome_version()
+        if chrome_major:
+            self._log(f"Detected installed Chrome major version: {chrome_major}")
 
+        service = self._resolve_driver_service(chrome_major)
         options.page_load_strategy = "eager"
-        self.driver = webdriver.Chrome(service=service, options=options)
+
+        try:
+            self.driver = webdriver.Chrome(service=service, options=options)
+        except WebDriverException as exc:
+            # A stale/ mismatched local driver was used — let Selenium Manager
+            # (built into Selenium >= 4.6) fetch a matching one and retry.
+            if service is not None:
+                self._log(
+                    "Chrome launch failed with the local driver; retrying with "
+                    f"Selenium Manager. ({str(exc)[:140]})"
+                )
+                self.driver = webdriver.Chrome(options=options)
+            else:
+                raise
+
         self.driver.implicitly_wait(3)
         self._log("Browser ready.")
         self._screenshot("browser_open")
 
-    def _find_local_chromedriver(self):
-        """Locate a ChromeDriver already on disk (cache / PATH) so we never
-        depend on GitHub to download it on every run."""
+    def _resolve_driver_service(self, chrome_major):
+        """Return a Service for a ChromeDriver that matches the installed
+        Chrome, downloading one if necessary. Returns None to let Selenium
+        Manager resolve it automatically (last resort)."""
+        try:
+            path = self._find_local_chromedriver(chrome_major)
+            self._log(f"Using local ChromeDriver: {path}")
+            return Service(path)
+        except ChromeDriverNotFoundError:
+            pass
+        try:
+            self._log("No matching local ChromeDriver; downloading via webdriver-manager...")
+            path = ChromeDriverManager().install()
+            self._log(f"ChromeDriver ready: {path}")
+            return Service(path)
+        except Exception as exc:
+            self._log(
+                f"webdriver-manager unavailable ({str(exc)[:120]}); "
+                "letting Selenium Manager resolve the driver."
+            )
+            return None
+
+    def _installed_chrome_version(self):
+        """Return the installed Chrome/Chromium major version, or None."""
+        if os.name == "nt":
+            try:
+                import winreg
+                for hive, key in (
+                    (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Google\Chrome\BLBeacon"),
+                    (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Google\Chrome\BLBeacon"),
+                ):
+                    try:
+                        with winreg.OpenKey(hive, key) as k:
+                            version, _ = winreg.QueryValueEx(k, "version")
+                            return int(str(version).split(".")[0])
+                    except OSError:
+                        continue
+            except Exception:
+                pass
+
+        for exe in self._chrome_binary_candidates():
+            try:
+                out = subprocess.run(
+                    [exe, "--version"], capture_output=True, text=True, timeout=10
+                )
+                match = re.search(r"(\d+)\.", out.stdout or "")
+                if match:
+                    return int(match.group(1))
+            except Exception:
+                continue
+        return None
+
+    def _chrome_binary_candidates(self):
+        candidates = []
+        if os.name == "nt":
+            local = os.environ.get("LOCALAPPDATA", "")
+            candidates += [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                os.path.join(local, r"Google\Chrome\Application\chrome.exe"),
+            ]
+        else:
+            for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+                path = shutil.which(name)
+                if path:
+                    candidates.append(path)
+        return [c for c in candidates if c and os.path.isfile(c)]
+
+    @staticmethod
+    def _chromedriver_major(path):
+        """Parse the major version of a ChromeDriver binary."""
+        try:
+            out = subprocess.run(
+                [path, "--version"], capture_output=True, text=True, timeout=10
+            )
+            match = re.search(r"ChromeDriver\s+(\d+)\.", out.stdout or "")
+            if match:
+                return int(match.group(1))
+        except Exception:
+            pass
+        # Fall back to the version embedded in the cache path, e.g.
+        # ~/.wdm/drivers/chromedriver/win64/154.0.xxxx/chromedriver-win64/...
+        match = re.search(r"[\\/](\d+)\.\d+\.\d+[\\/]", path)
+        return int(match.group(1)) if match else None
+
+    def _find_local_chromedriver(self, required_major=None):
+        """Locate a ChromeDriver already on disk that matches the installed
+        Chrome (by major version) so we never download a mismatched one."""
         candidates = [
             os.path.join(self.app.root_path, "..", "drivers", "chromedriver.exe"),
             os.path.join(os.getcwd(), "drivers", "chromedriver.exe"),
@@ -313,17 +412,24 @@ class AttendanceAutomationBot:
         cache_root = os.path.join(os.path.expanduser("~"), ".wdm", "drivers")
         if os.path.isdir(cache_root):
             candidates += sorted(
-                glob.glob(os.path.join(cache_root, "**", "chromedriver.exe"), recursive=True),
+                glob.glob(os.path.join(cache_root, "**", "chromedriver*"), recursive=True),
                 reverse=True,
             )
-        for path in candidates:
-            if path and os.path.isfile(path):
-                return path
-
-        import shutil
         on_path = shutil.which("chromedriver")
         if on_path:
-            return on_path
+            candidates.append(on_path)
+
+        for path in candidates:
+            if not path or not os.path.isfile(path):
+                continue
+            if required_major is None:
+                return path
+            major = self._chromedriver_major(path)
+            if major == required_major:
+                return path
+            self._log(
+                f"Skipping ChromeDriver v{major} (needs v{required_major}): {path}"
+            )
         raise ChromeDriverNotFoundError()
 
     def _login(self):
