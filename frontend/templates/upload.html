@@ -99,9 +99,11 @@
         </div>
         <div>
           <label class="label" for="f-subject">Subject</label>
-          <input id="f-subject" class="input" list="subject-options" autocomplete="off"
-            placeholder="Select department, year &amp; section first">
-          <datalist id="subject-options"></datalist>
+          <select id="f-subject" class="select">
+            <option value="">Select department, year &amp; section first</option>
+          </select>
+          <input id="f-subject-manual" type="text" class="input mt-2 hidden" autocomplete="off"
+            placeholder="Or type the subject name manually">
           <p id="subject-note" class="text-xs hidden"></p>
         </div>
         <div>
@@ -148,47 +150,67 @@ const fDept = document.getElementById('f-department');
 const fYear = document.getElementById('f-year');
 const fSection = document.getElementById('f-section');
 const fSubject = document.getElementById('f-subject');
+const fSubjectManual = document.getElementById('f-subject-manual');
 const subjectNote = document.getElementById('subject-note');
+
+function setSubjectNote(text, kind) {
+  if (!text) {
+    subjectNote.className = 'text-xs hidden';
+    subjectNote.textContent = '';
+    return;
+  }
+  subjectNote.className = 'text-xs mt-1.5 ' + (kind === 'error' ? 'text-red-500' : 'text-amber-500');
+  subjectNote.textContent = text;
+}
 
 function loadSubjects() {
   fSubject.disabled = true;
-  fSubject.value = '';
-  const datalist = document.getElementById('subject-options');
-  datalist.innerHTML = '';
+  fSubject.innerHTML = '<option value="">Loading subjects...</option>';
+  fSubjectManual.value = '';
   if (!fDept.value || !fYear.value || !fSection.value) {
-    fSubject.placeholder = 'Select department, year & section first';
+    fSubject.innerHTML = '<option value="">Select department, year &amp; section first</option>';
+    fSubjectManual.classList.add('hidden');
+    setSubjectNote('');
     return;
   }
-  fSubject.placeholder = 'Loading subjects...';
   const params = new URLSearchParams({ department: fDept.value, year: fYear.value, section: fSection.value });
   fetch(`/automation/subjects?${params}`)
     .then(r => r.json())
     .then(data => {
       const list = data.subjects || [];
-      datalist.innerHTML = list.map(s => `<option value="${s}"></option>`).join('');
-      fSubject.disabled = false;
-      fSubject.placeholder = list.length ? 'Select or type a subject' : 'Type the subject name';
-      if (data.error) {
-        subjectNote.className = 'text-xs text-red-500 mt-1.5';
-        subjectNote.textContent = `Couldn't load subjects: ${data.error}`;
-      } else if (data.note) {
-        subjectNote.className = 'text-xs text-amber-500 mt-1.5';
-        subjectNote.textContent = data.note;
+      if (list.length) {
+        fSubject.innerHTML = '<option value="">Select subject</option>' +
+          list.map(s => `<option>${s}</option>`).join('');
+        fSubject.disabled = false;
+        fSubjectManual.classList.add('hidden');
       } else {
-        subjectNote.className = 'text-xs hidden';
-        subjectNote.textContent = '';
+        fSubject.innerHTML = '<option value="">No subjects found — type below</option>';
+        fSubject.disabled = true;
+        fSubjectManual.classList.remove('hidden');
+      }
+      if (data.error) {
+        setSubjectNote(`Couldn't load subjects: ${data.error} — type the subject below instead.`, 'error');
+        fSubjectManual.classList.remove('hidden');
+      } else if (data.note) {
+        setSubjectNote(data.note, 'warn');
+      } else {
+        setSubjectNote('');
       }
     })
     .catch(() => {
-      fSubject.disabled = false;
-      fSubject.placeholder = 'Type the subject name';
-      subjectNote.className = 'text-xs text-red-500 mt-1.5';
-      subjectNote.textContent = 'Could not reach the server to load subjects. You can still type it manually.';
+      fSubject.innerHTML = '<option value="">Could not load subjects — type below</option>';
+      fSubject.disabled = true;
+      fSubjectManual.classList.remove('hidden');
+      setSubjectNote('Could not reach the server. Type the subject name below.', 'error');
     });
 }
 fDept.addEventListener('change', loadSubjects);
 fYear.addEventListener('change', loadSubjects);
 fSection.addEventListener('change', loadSubjects);
+
+function selectedSubject() {
+  return (fSubjectManual.value.trim() || fSubject.value || '').trim();
+}
 
 let currentUploadId = null;
 let currentAbsentees = [];
@@ -320,7 +342,7 @@ startBtn.addEventListener('click', () => {
     department: fDept.value,
     year: fYear.value,
     section: fSection.value,
-    subject: fSubject.value,
+    subject: selectedSubject(),
     period: document.getElementById('f-period').value,
     date: document.getElementById('f-date').value,
   };

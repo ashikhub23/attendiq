@@ -63,42 +63,55 @@ def portal_subjects():
 
     try:
         supabase_url = current_app.config["PORTAL_SUPABASE_URL"].rstrip("/")
-        if not supabase_url:
+        anon_key = current_app.config.get("PORTAL_SUPABASE_ANON_KEY", "")
+        if not supabase_url or not anon_key:
             return jsonify({
                 "subjects": [],
-                "error": "PORTAL_SUPABASE_URL is not configured on the server.",
+                "error": "PORTAL_SUPABASE_URL / PORTAL_SUPABASE_ANON_KEY are not "
+                         "configured on the server.",
             }), 500
-        headers = _supabase_headers(current_app)
 
-        def fetch(extra_fields):
+        # Try with the HOD auth token first (matches the portal's own client),
+        # and fall back to the anon key in case the subjects table uses a
+        # public read policy.
+        try:
+            headers = _supabase_headers(current_app)
+        except Exception as exc:
+            current_app.logger.warning("Subjects: HOD token fetch failed: %s", exc)
+            headers = {"apikey": anon_key}
+        anon_headers = {"apikey": anon_key}
+
+        def query(headers, extra_fields):
             qs = "select=name&order=name"
             for field, value in extra_fields:
                 qs += f"&{field}=eq.{quote(value, safe='')}"
-            resp = requests.get(
-                f"{supabase_url}/rest/v1/subjects?{qs}",
-                headers=headers,
-                timeout=20,
+            url = f"{supabase_url}/rest/v1/subjects?{qs}"
+            resp = requests.get(url, headers=headers, timeout=20)
+            current_app.logger.info(
+                "Subjects query %s -> %s", qs, resp.status_code
             )
             resp.raise_for_status()
-            return [row["name"] for row in resp.json()]
+            return [row["name"] for row in resp.json() if row.get("name")]
 
-        # Exact class match first. If the portal stores year/section in a
-        # slightly different format, relax the filters so the HOD can still
-        # pick a subject instead of seeing an empty list.
-        attempts = [
-            ("department", department), ("year", year), ("section", section),
+        # Filter sets, from most specific to least.
+        filter_sets = [
+            [("department", department), ("year", year), ("section", section)],
+            [("department", department), ("section", section)],
+            [("department", department)],
         ]
-        subjects = fetch(attempts)
-        note = ""
-        if not subjects:
-            subjects = fetch([("department", department), ("section", section)])
+        subjects, note = [], ""
+        for i, filters in enumerate(filter_sets):
+            subjects = query(headers, filters)
+            if not subjects:
+                subjects = query(anon_headers, filters)
             if subjects:
-                note = "Showing subjects for this department/section (year filter relaxed)."
-        if not subjects:
-            subjects = fetch([("department", department)])
-            if subjects:
-                note = "Showing all subjects for this department."
+                if i == 1:
+                    note = "Showing subjects for this department/section (year filter relaxed)."
+                elif i == 2:
+                    note = "Showing all subjects for this department."
+                break
     except Exception as exc:
+        current_app.logger.exception("Subjects lookup failed")
         return jsonify({"subjects": [], "error": str(exc)}), 502
 
     payload = {"subjects": subjects}
