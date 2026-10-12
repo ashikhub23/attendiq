@@ -606,7 +606,7 @@ class AttendanceAutomationBot:
             if not value:
                 self._log(f"  {key}: (skipped - no value provided)")
                 continue
-            self._select_dropdown_value(key, value)
+            self._select_dropdown_value(f"{key}_dropdown", value)
             self._log(f"  {key}: set to '{value}'")
             # Dept/Year/Section changes trigger an async subject reload.
             time.sleep(0.1)
@@ -647,9 +647,12 @@ class AttendanceAutomationBot:
         """Select an option in a <select>, retrying if the dropdown re-renders
         underneath us (stale element)."""
         def _do():
-            sel_el = self._find(key)
+            try:
+                sel_el = self._find(key)
+            except NoSuchElementException:
+                sel_el = None
             if sel_el is None:
-                raise AutomationError(f"{key} dropdown not found.")
+                raise AutomationError(f"{key.replace('_dropdown', '')} dropdown not found.")
             selector = Select(sel_el)
             try:
                 selector.select_by_value(value)
