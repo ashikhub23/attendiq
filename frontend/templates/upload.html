@@ -99,9 +99,10 @@
         </div>
         <div>
           <label class="label" for="f-subject">Subject</label>
-          <select id="f-subject" class="select">
-            <option value="">Select subject</option>
-          </select>
+          <input id="f-subject" class="input" list="subject-options" autocomplete="off"
+            placeholder="Select department, year &amp; section first">
+          <datalist id="subject-options"></datalist>
+          <p id="subject-note" class="text-xs hidden"></p>
         </div>
         <div>
           <label class="label" for="f-period">Period</label>
@@ -147,27 +148,42 @@ const fDept = document.getElementById('f-department');
 const fYear = document.getElementById('f-year');
 const fSection = document.getElementById('f-section');
 const fSubject = document.getElementById('f-subject');
+const subjectNote = document.getElementById('subject-note');
 
 function loadSubjects() {
   fSubject.disabled = true;
-  fSubject.innerHTML = '<option value="">Loading subjects...</option>';
+  fSubject.value = '';
+  const datalist = document.getElementById('subject-options');
+  datalist.innerHTML = '';
   if (!fDept.value || !fYear.value || !fSection.value) {
-    fSubject.innerHTML = '<option value="">Select department, year & section first</option>';
+    fSubject.placeholder = 'Select department, year & section first';
     return;
   }
+  fSubject.placeholder = 'Loading subjects...';
   const params = new URLSearchParams({ department: fDept.value, year: fYear.value, section: fSection.value });
   fetch(`/automation/subjects?${params}`)
     .then(r => r.json())
     .then(data => {
       const list = data.subjects || [];
-      fSubject.innerHTML = '<option value="">Select subject</option>' +
-        list.map(s => `<option>${s}</option>`).join('') +
-        (list.length ? '' : '<option value="">No subjects for this class</option>');
-      fSubject.disabled = list.length === 0;
+      datalist.innerHTML = list.map(s => `<option value="${s}"></option>`).join('');
+      fSubject.disabled = false;
+      fSubject.placeholder = list.length ? 'Select or type a subject' : 'Type the subject name';
+      if (data.error) {
+        subjectNote.className = 'text-xs text-red-500 mt-1.5';
+        subjectNote.textContent = `Couldn't load subjects: ${data.error}`;
+      } else if (data.note) {
+        subjectNote.className = 'text-xs text-amber-500 mt-1.5';
+        subjectNote.textContent = data.note;
+      } else {
+        subjectNote.className = 'text-xs hidden';
+        subjectNote.textContent = '';
+      }
     })
     .catch(() => {
-      fSubject.innerHTML = '<option value="">Failed to load subjects</option>';
       fSubject.disabled = false;
+      fSubject.placeholder = 'Type the subject name';
+      subjectNote.className = 'text-xs text-red-500 mt-1.5';
+      subjectNote.textContent = 'Could not reach the server to load subjects. You can still type it manually.';
     });
 }
 fDept.addEventListener('change', loadSubjects);

@@ -63,23 +63,48 @@ def portal_subjects():
 
     try:
         supabase_url = current_app.config["PORTAL_SUPABASE_URL"].rstrip("/")
+        if not supabase_url:
+            return jsonify({
+                "subjects": [],
+                "error": "PORTAL_SUPABASE_URL is not configured on the server.",
+            }), 500
         headers = _supabase_headers(current_app)
 
-        qs = "select=name&order=name"
-        for field, value in (("department", department), ("year", year), ("section", section)):
-            qs += f"&{field}=eq.{quote(value, safe='')}"
+        def fetch(extra_fields):
+            qs = "select=name&order=name"
+            for field, value in extra_fields:
+                qs += f"&{field}=eq.{quote(value, safe='')}"
+            resp = requests.get(
+                f"{supabase_url}/rest/v1/subjects?{qs}",
+                headers=headers,
+                timeout=20,
+            )
+            resp.raise_for_status()
+            return [row["name"] for row in resp.json()]
 
-        resp = requests.get(
-            f"{supabase_url}/rest/v1/subjects?{qs}",
-            headers=headers,
-            timeout=20,
-        )
-        resp.raise_for_status()
-        subjects = [row["name"] for row in resp.json()]
+        # Exact class match first. If the portal stores year/section in a
+        # slightly different format, relax the filters so the HOD can still
+        # pick a subject instead of seeing an empty list.
+        attempts = [
+            ("department", department), ("year", year), ("section", section),
+        ]
+        subjects = fetch(attempts)
+        note = ""
+        if not subjects:
+            subjects = fetch([("department", department), ("section", section)])
+            if subjects:
+                note = "Showing subjects for this department/section (year filter relaxed)."
+        if not subjects:
+            subjects = fetch([("department", department)])
+            if subjects:
+                note = "Showing all subjects for this department."
     except Exception as exc:
         return jsonify({"subjects": [], "error": str(exc)}), 502
 
-    return jsonify({"subjects": subjects})
+    payload = {"subjects": subjects}
+    if note:
+        payload["note"] = note
+    return jsonify(payload)
 
 
 @automation_bp.route("/automation/progress/<int:session_id>")
