@@ -33,7 +33,8 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
-    TimeoutException, NoSuchElementException, WebDriverException
+    TimeoutException, NoSuchElementException, WebDriverException,
+    StaleElementReferenceException,
 )
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -96,6 +97,51 @@ for (var i = 0; i < rows.length; i++) {
     for (var k = 0; k < boxes.length; k++) {
       if (boxes[k].checked) boxes[k].click();
     }
+    marked++;
+    if (matchedKeys.indexOf(hit) === -1) matchedKeys.push(hit);
+  }
+}
+return { marked: marked, matched: matchedKeys };
+"""
+
+
+# Period-specific variant: only toggles the selected period's checkbox for each
+# row (check = present, uncheck = absent) in a single execute_script call. The
+# portal's own change handler keeps its in-memory state in sync, and it does NOT
+# re-render the table on period checkbox changes, so this avoids stale element
+# races entirely.
+_MARK_PERIOD_JS = """
+function normName(s) {
+  if (!s) return '';
+  return s.trim().toLowerCase()
+    .replace(/^\\d{1,3}\\s*[.)\\-]\\s*/, '')
+    .replace(/\\./g, ' ')
+    .replace(/\\s+/g, ' ').trim();
+}
+var absentees = arguments[0];
+var period = arguments[1];
+var rows = document.querySelectorAll('#attBody tr');
+var marked = 0;
+var matchedKeys = [];
+for (var i = 0; i < rows.length; i++) {
+  var row = rows[i];
+  var rollEl = row.querySelector('td .roll');
+  if (!rollEl) continue;
+  var regno = rollEl.textContent.trim();
+  var nameEl = row.querySelector('td .sname');
+  var name = nameEl ? normName(nameEl.textContent) : '';
+  var hit = null;
+  for (var j = 0; j < absentees.length; j++) {
+    var key = absentees[j];
+    if (regno === key) { hit = key; break; }
+    if (name === key) { hit = key; break; }
+    if (name.indexOf(key) === 0) { hit = key; break; }
+  }
+  var cb = row.querySelector('input.period-cb[data-period="' + period + '"]');
+  if (!cb) continue;
+  var target = !hit;
+  if (cb.checked !== target) { cb.click(); }
+  if (hit) {
     marked++;
     if (matchedKeys.indexOf(hit) === -1) matchedKeys.push(hit);
   }
@@ -250,6 +296,52 @@ class AttendanceAutomationBot:
         if by is None:
             return []
         return self.driver.find_elements(by, selector)
+
+    def _retry(self, fn, attempts=4, delay=0.4, what="element"):
+        """Run fn(), retrying when the portal re-rendered the DOM underneath us
+        and invalidated a previously-found element (stale element reference)."""
+        last = None
+        for i in range(attempts):
+            try:
+                return fn()
+            except StaleElementReferenceException as e:
+                last = e
+                if i < attempts - 1:
+                    self._log(
+                        f"  {what} re-rendered; retrying ({i + 1}/{attempts})...",
+                        level="WARN",
+                    )
+                    time.sleep(delay)
+        raise last
+
+    def _wait_for_table_stable(self, timeout=None):
+        """Wait until the student table stops changing. The portal fires several
+        async reloads (one per filter change), each rebuilding #attBody, so we
+        wait for two identical consecutive snapshots before reading it."""
+        timeout = timeout or EXPLICIT_WAIT_SECONDS
+        deadline = time.time() + timeout
+        script = (
+            "var b = document.querySelector('#attBody');"
+            "if (!b) return null;"
+            "return b.children.length + '|' + "
+            "  ((b.querySelector('td .roll') || {}).textContent || '') + '|' + "
+            "  ((b.querySelector('td .sname') || {}).textContent || '');"
+        )
+        last = None
+        stable = 0
+        while time.time() < deadline:
+            try:
+                sig = self.driver.execute_script(script)
+            except WebDriverException:
+                return
+            if sig and sig == last:
+                stable += 1
+                if stable >= 2:
+                    return
+            else:
+                stable = 0
+            last = sig
+            time.sleep(0.35)
 
     # ---------- workflow ----------
 
@@ -514,23 +606,8 @@ class AttendanceAutomationBot:
             if not value:
                 self._log(f"  {key}: (skipped - no value provided)")
                 continue
-            sel_el = self._find(f"{key}_dropdown")
-            selector = Select(sel_el)
-            try:
-                # Prefer matching the option VALUE (e.g. year "III" has
-                # value="III" but visible text "III Year").
-                selector.select_by_value(value)
-                self._log(f"  {key}: set to '{value}'")
-            except NoSuchElementException:
-                try:
-                    selector.select_by_visible_text(value)
-                    self._log(f"  {key}: set to '{value}'")
-                except NoSuchElementException:
-                    options = [o.text for o in sel_el.find_elements(By.TAG_NAME, "option")]
-                    raise AutomationError(
-                        f"Value '{value}' not found in {key} dropdown. "
-                        f"Available options: {options}"
-                    )
+            self._select_dropdown_value(key, value)
+            self._log(f"  {key}: set to '{value}'")
             # Dept/Year/Section changes trigger an async subject reload.
             time.sleep(0.1)
 
@@ -548,33 +625,57 @@ class AttendanceAutomationBot:
 
         subject = self.filters.get("subject")
         if subject:
-            subject_el = self._find("subject_dropdown")
             try:
-                Select(subject_el).select_by_visible_text(subject)
-                self._log(f"  subject: set to '{subject}'")
-            except NoSuchElementException:
-                options = [o.text for o in subject_el.find_elements(By.TAG_NAME, "option")]
-                raise AutomationError(
-                    f"Value '{subject}' not found in subject dropdown. "
-                    f"Available options: {options}"
-                )
+                self._select_dropdown_value("subject_dropdown", subject)
+            except StaleElementReferenceException:
+                # Reloads can swap the option list mid-selection; retry once.
+                time.sleep(0.5)
+                self._select_dropdown_value("subject_dropdown", subject)
+            self._log(f"  subject: set to '{subject}'")
 
         if self.filters.get("date"):
-            try:
-                date_el = self._find("date_input")
-                self.driver.execute_script(
-                    "arguments[0].value = arguments[1];"
-                    "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
-                    date_el, self.filters["date"],
-                )
-                self._log(f"  date: set to '{self.filters['date']}'")
-            except NoSuchElementException:
-                self._log("  date: input field not found (skipped)")
+            self._set_date_input(self.filters["date"])
+            self._log(f"  date: set to '{self.filters['date']}'")
 
-        # Give the student table a moment to load after filters applied.
-        time.sleep(0.5)
+        # The portal fires an async reload for every filter change; wait for the
+        # resulting re-renders to settle before touching the table.
+        self._wait_for_table_stable()
         self._log("All filters applied.")
         self._screenshot("filters_applied")
+
+    def _select_dropdown_value(self, key, value):
+        """Select an option in a <select>, retrying if the dropdown re-renders
+        underneath us (stale element)."""
+        def _do():
+            sel_el = self._find(key)
+            if sel_el is None:
+                raise AutomationError(f"{key} dropdown not found.")
+            selector = Select(sel_el)
+            try:
+                selector.select_by_value(value)
+            except NoSuchElementException:
+                try:
+                    selector.select_by_visible_text(value)
+                except NoSuchElementException:
+                    options = [o.text for o in sel_el.find_elements(By.TAG_NAME, "option")]
+                    raise AutomationError(
+                        f"Value '{value}' not found in {key} dropdown. "
+                        f"Available options: {options}"
+                    )
+        self._retry(_do, what=f"{key} dropdown")
+
+    def _set_date_input(self, value):
+        def _do():
+            date_el = self._find("date_input")
+            if date_el is None:
+                self._log("  date: input field not found (skipped)")
+                return
+            self.driver.execute_script(
+                "arguments[0].value = arguments[1];"
+                "arguments[0].dispatchEvent(new Event('change', { bubbles: true }));",
+                date_el, value,
+            )
+        self._retry(_do, what="date input")
 
     def _mark_students(self):
         self._update("mark_absent", "Loading Student Table", 55)
@@ -589,6 +690,10 @@ class AttendanceAutomationBot:
         except TimeoutException:
             raise AutomationError("Student Not Found - attendance table did not load.")
 
+        # The portal fires an async reload per filter change; wait until the
+        # table stops rebuilding so rows don't go stale while we read them.
+        self._wait_for_table_stable()
+
         roster = self._read_roster()
         self._log(f"Student table loaded. Found {len(roster)} rows.")
         self._screenshot("student_table_loaded")
@@ -599,38 +704,39 @@ class AttendanceAutomationBot:
         absent_count = 0
 
         if selected_period:
-            # Period-specific: only toggle the selected period's checkbox.
+            # Period-specific: one JS pass toggles only the selected period's
+            # checkbox per row (checked = present, unchecked = absent).
             self._update("mark_absent", f"Marking Period {selected_period}", 60)
             self._log(f"Marking only period: {selected_period}")
-            rows = self.driver.find_elements(By.CSS_SELECTOR, "#attBody tr")
-            for row in rows:
-                regno_text, name_text, matched = self._row_info(row)
-                if regno_text is None:
-                    continue
-                try:
-                    cb = row.find_element(
-                        By.CSS_SELECTOR, f"input.period-cb[data-period='{selected_period}']"
-                    )
-                except NoSuchElementException:
-                    continue
-                target_checked = not bool(matched)
-                if cb.is_selected() != target_checked:
-                    self.driver.execute_script("arguments[0].click();", cb)
-                if matched:
-                    absent_count += 1
-                    self._log(f"  ABSENT  #{absent_count}  {regno_text or name_text} - {name_text}")
-                    not_found.discard(matched)
+            absent_keys = sorted(self.absentee_reg_nos) + sorted(self.absentee_names)
+            result = self._retry(
+                lambda: self.driver.execute_script(
+                    _MARK_PERIOD_JS, absent_keys, selected_period
+                ),
+                what="period marking",
+            )
+            absent_count = result.get("marked", 0)
+            for key in result.get("matched", []):
+                not_found.discard(key)
+            self._log(f"  ABSENT marked: {absent_count}")
         else:
             # Full-day: bulk-mark everyone PRESENT, then UNCHECK absentees.
             self._update("mark_absent", "Marking All Present", 60)
             self._log("Clicking 'Mark All Present'...")
-            mark_all = self._find("mark_all_present_button")
-            self.driver.execute_script("arguments[0].click();", mark_all)
+            self._retry(
+                lambda: self.driver.execute_script(
+                    "arguments[0].click();", self._find("mark_all_present_button")
+                ),
+                what="mark-all button",
+            )
             time.sleep(0.3)
 
             # Build the absentee key list (register numbers + normalized names).
             absent_keys = sorted(self.absentee_reg_nos) + sorted(self.absentee_names)
-            result = self.driver.execute_script(_UNCHECK_ABSENTEES_JS, absent_keys)
+            result = self._retry(
+                lambda: self.driver.execute_script(_UNCHECK_ABSENTEES_JS, absent_keys),
+                what="absentee marking",
+            )
             absent_count = result.get("marked", 0)
             for key in result.get("matched", []):
                 not_found.discard(key)
@@ -667,56 +773,37 @@ class AttendanceAutomationBot:
         n = re.sub(r"\s+", " ", n).strip()
         return n
 
-    def _row_info(self, row):
-        """Return (regno, name, matched_key) for a table row, or (None, None, None).
-
-        matched_key identifies the absentee entry (register number or name)
-        that matched this student, or None when the student is NOT absent.
-        Matching is lenient: exact register number, exact name, then a
-        prefix match so partial names like "mohamed ajmal" match the portal's
-        full name "Mohamed Ajmal M".
-        """
-        try:
-            regno_text = row.find_element(By.CSS_SELECTOR, "td .roll").text.strip()
-            name_text = row.find_element(By.CSS_SELECTOR, "td .sname").text.strip()
-        except NoSuchElementException:
-            return None, None, None
-        name_lower = self._normalize_name(name_text)
-
-        if regno_text and regno_text in self.absentee_reg_nos:
-            return regno_text, name_text, regno_text
-        if regno_text and regno_text.lower() in self.absentee_names:
-            return regno_text, name_text, regno_text.lower()
-        if name_lower and name_lower in self.absentee_names:
-            return regno_text, name_text, name_lower
-        for abs_name in self.absentee_names:
-            if name_lower.startswith(abs_name):
-                return regno_text, name_text, abs_name
-        return regno_text, name_text, None
-
     def _read_roster(self):
-        """Read (roll_no, name) pairs from the loaded student table."""
-        roster = []
-        seen = set()
-        for row in self.driver.find_elements(By.CSS_SELECTOR, "#attBody tr"):
-            try:
-                regno = row.find_element(By.CSS_SELECTOR, "td .roll").text.strip()
-                name = row.find_element(By.CSS_SELECTOR, "td .sname").text.strip()
-            except NoSuchElementException:
-                continue
-            if regno and regno in seen:
-                continue
-            if regno:
-                seen.add(regno)
-            roster.append((regno, name))
-        return roster
+        """Read (roll_no, name) pairs from the loaded student table, retrying if
+        the portal rebuilds the table mid-read."""
+        def _read():
+            roster = []
+            seen = set()
+            for row in self.driver.find_elements(By.CSS_SELECTOR, "#attBody tr"):
+                try:
+                    regno = row.find_element(By.CSS_SELECTOR, "td .roll").text.strip()
+                    name = row.find_element(By.CSS_SELECTOR, "td .sname").text.strip()
+                except NoSuchElementException:
+                    continue
+                if regno and regno in seen:
+                    continue
+                if regno:
+                    seen.add(regno)
+                roster.append((regno, name))
+            return roster
+        return self._retry(_read, what="student table")
 
     def _save_and_verify(self):
         self._update("save", "Saving Attendance", 90)
         self._log("Scrolling to Save button...")
         try:
-            btn = self._find("save_attendance_button")
-            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
+            self._retry(
+                lambda: self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});",
+                    self._find("save_attendance_button"),
+                ),
+                what="save button",
+            )
             time.sleep(0.2)
         except NoSuchElementException:
             raise AutomationError("Attendance Save Failed - save button not found.")
@@ -734,7 +821,12 @@ class AttendanceAutomationBot:
         for attempt in range(1, 4):
             self._log(f"Clicking Save Attendance (attempt {attempt}/3)...")
             try:
-                self.driver.execute_script("arguments[0].click();", btn)
+                self._retry(
+                    lambda: self.driver.execute_script(
+                        "arguments[0].click();", self._find("save_attendance_button")
+                    ),
+                    what="save button",
+                )
             except WebDriverException as e:
                 raise AutomationError(f"Attendance Save Failed - could not click save: {str(e)[:200]}")
 
@@ -766,13 +858,16 @@ class AttendanceAutomationBot:
             else:
                 # No portal API configured - fall back to the portal's own UI
                 # signals (saved banner / success toast).
+                def _ui_saved(d):
+                    try:
+                        banner = d.find_element(By.ID, "savedBanner").get_attribute("innerHTML") or ""
+                        toast = d.find_element(By.ID, "toastStack").get_attribute("innerHTML") or ""
+                    except (NoSuchElementException, StaleElementReferenceException):
+                        return False
+                    return "saved" in banner.lower() or "attendance saved" in toast.lower()
+
                 try:
-                    WebDriverWait(self.driver, 15).until(
-                        lambda d: "saved" in d.find_element(By.ID, "savedBanner")
-                                            .get_attribute("innerHTML").lower()
-                        or "attendance saved" in d.find_element(By.ID, "toastStack")
-                                            .get_attribute("innerHTML").lower()
-                    )
+                    WebDriverWait(self.driver, 15).until(_ui_saved)
                     verified = True
                     self._log("Save confirmed by the portal UI.")
                 except (TimeoutException, NoSuchElementException):
